@@ -1,0 +1,54 @@
+import cv2
+import numpy as np
+import os
+from PIL import Image
+from tensorflow.keras.utils import to_categorical
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense, Flatten
+from sklearn.model_selection import train_test_split
+
+def load_images(image_directory, reference_image_path, img_size=(28, 28), similarity_threshold=0.85):
+    ref_image = Image.open(reference_image_path).convert('L')
+    ref_image = ref_image.resize(img_size)
+    ref_image = np.array(ref_image)
+    images = []
+    labels = []
+
+    for filename in os.listdir(image_directory):
+        img_path = os.path.join(image_directory, filename)
+        try:
+            with Image.open(img_path) as img:
+                img = img.convert('L')
+                img = img.resize(img_size)
+                img = np.array(img)
+                images.append(img)
+                hist_img = cv2.calcHist([img], [0], None, [256], [0, 256])
+                hist_ref = cv2.calcHist([ref_image], [0], None, [256], [0, 256])
+                similarity = cv2.compareHist(hist_img, hist_ref, cv2.HISTCMP_CORREL)
+                labels.append(1 if similarity > similarity_threshold else 0)
+        except IOError:
+            print(f"Warning: Image {img_path} could not be loaded.")
+
+    images = np.array(images) / 255.0
+    labels = to_categorical(labels)
+    return images, labels, os.listdir(image_directory)
+
+images, labels, filenames = load_images("C:/Users/vital/OneDrive/Desktop/Diploma/Uploads/Images", "C:/Users/vital/OneDrive/Desktop/Diploma/Uploads/etalon/granata.jpg")
+
+X_train, X_test, y_train, y_test = train_test_split(images, labels, test_size=0.2, random_state=42)
+
+model = Sequential([
+    Flatten(input_shape=(28, 28)),
+    Dense(128, activation='relu'),
+    Dense(2, activation='softmax')
+])
+
+model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
+
+model.fit(X_train, y_train, epochs=10, validation_data=(X_test, y_test))
+
+predictions = model.predict(images)
+predicted_classes = np.argmax(predictions, axis=1)
+
+for filename, prediction in zip(filenames, predicted_classes):
+    print(f"Image: {filename} - Class: {prediction}")
