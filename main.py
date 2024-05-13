@@ -1,150 +1,74 @@
-import matplotlib.pyplot as plt
 import cv2
 import numpy as np
 
-image = cv2.imread('Uploads/etalon/granata.jpg')
+# RGB - Standart
+# BGR - OpenCV format
 
-# Преобразование в оттенки серого
-gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+# 1. Реализуем возможность загрузить и показать пользователю изображение.
+img = cv2.imread('Uploads/etalon/granata.jpg')
 
-# Изменение размера до новых ширины и высоты
-resized_image = cv2.resize(gray_image, (400, 400))
+img = cv2.resize(img, (400, 400))
 
-# Бинаризация изображения
-_, binary_image = cv2.threshold(gray_image, 127, 255, cv2.THRESH_BINARY)
+new_img = np.zeros(img.shape, dtype='uint8')
 
-# Применение медианного фильтра для устранения шума
-denoised_image = cv2.medianBlur(binary_image, 5) // binary_image
+# 2. Размытие изображения
+img = cv2.GaussianBlur(img, (11, 11), 0)
 
-import numpy as np
+# 3. Приведем картинку из формата RGB в формат серой картинки
+img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
-def homomorphic_filter(image, cutoff_frequency=30, high_boost_parameter=2):
-    # Преобразование изображения в логарифмическую шкалу
-    log_image = np.log1p(np.array(image, dtype="float"))
+# 4. Найдем углы и края изображения
+img = cv2.Canny(img, 90, 240)
 
-    # Применение быстрого преобразования Фурье
-    fft = np.fft.fft2(log_image)
+# 5. Увеличим толщину обводки
+kernel = np.ones((2, 2), np.uint8)
+img = cv2.dilate(img, kernel, iterations=1)
 
-    # Центрирование нулевой частоты
-    fft_shifted = np.fft.fftshift(fft)
+# 6. Уменьшим толщину обводки
+img = cv2.erode(img, kernel, iterations=1)
 
-    # Создание фильтра Гаусса
-    rows, cols = log_image.shape
-    crow, ccol = rows // 2 , cols // 2
-    mask = np.ones((rows, cols), np.uint8)
-    r = cutoff_frequency
-    center = [crow, ccol]
-    x, y = np.ogrid[:rows, :cols]
-    mask_area = (x - center[0]) ** 2 + (y - center[1]) ** 2 <= r*r
-    mask[mask_area] = 0
+# 7. Находим контурі изображения
+# В первой переменной хранится список со всеми позициями контуров
+# Во второй переменной хранится иерархия самих объектов
+con, hir = cv2.findContours(img, cv2.RETR_LIST, cv2.CHAIN_APPROX_NONE)
 
-    # Применение фильтра
-    fft_shifted = fft_shifted * mask
+cv2.drawContours(new_img, con, -1, (0, 0, 255), 1)
+# print(con)
 
-    # Обратное преобразование Фурье
-    ifft_shifted = np.fft.ifftshift(fft_shifted)
-    ifft = np.fft.ifft2(ifft_shifted)
+cv2.imshow('Picture to be recognized', new_img)
 
-    # Преобразование обратно из логарифмической шкалы
-    result = np.expm1(np.real(ifft))
+# Сохраняем контур изображения
+# cv2.imwrite('Results/Etalon_contour/contours1.png', new_img)
 
-    # Увеличение контраста с помощью усиления высоких частот
-    result = high_boost_parameter * result + image
-
-    return np.uint8(result)
-
-# Пример использования
-filtered_image = homomorphic_filter(binary_image)
-
-# Применение гауссова размытия для сглаживания шумов
-blurred_image = cv2.GaussianBlur(gray_image, (5, 5), 0)
-
-# Применение алгоритма Кэнни для обнаружения границ
-edges = cv2.Canny(blurred_image, 50, 150)
-
-# Нахождение контуров на изображении
-contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-
-# Создание копии изображения для отрисовки контуров
-contour_image = image.copy()
-
-# Отрисовка контуров на копии изображения
-cv2.drawContours(contour_image, contours, -1, (0, 255, 0), 2)
-
-# Применение морфологического преобразования "замыкание" (closing)
-kernel = np.ones((5, 5), np.uint8)
-closing_result = cv2.morphologyEx(binary_image, cv2.MORPH_CLOSE, kernel)
-
-# Применение морфологического преобразования "раскрытие" (opening)
-opening_result = cv2.morphologyEx(binary_image, cv2.MORPH_OPEN, kernel)
-
-# Применение морфологического преобразования "эрозия"
-erosion_result = cv2.erode(binary_image, kernel, iterations=1)
-
-# Применение морфологического преобразования "диляция"
-dilation_result = cv2.dilate(binary_image, kernel, iterations=1)
-
-contur = image 
-# Поиск контуров на бинарном изображении
-contours, _ = cv2.findContours(binary_image, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-
-# Определение компактности для каждого контура
-for contour in contours:
-    # Вычисление площади контура
+# ---------------------------------------------------------------------------------
+# Перебор контуров и извлечение характеристик
+for contour in con:
     area = cv2.contourArea(contour)
-
-    # Вычисление периметра контура
     perimeter = cv2.arcLength(contour, True)
+    M = cv2.moments(contour)
+    cx = int(M["m10"] / M["m00"]) if M["m00"] != 0 else 0
+    cy = int(M["m01"] / M["m00"]) if M["m00"] != 0 else 0
+    x, y, w, h = cv2.boundingRect(contour)
+    aspect_ratio = w / h
+    rect_area = w * h
+    extent = area / rect_area
 
-    # Вычисление компактности (отношение площади к периметру)
-    compactness = (4 * np.pi * area) / (perimeter**2)
+    # Проверка на достаточное количество точек для построения эллипса
+    if len(contour) >= 5:
+        (x, y), (MA, ma), angle = cv2.fitEllipse(contour)
+        eccentricity = np.sqrt(1 - (MA / ma) ** 2) if ma != 0 else 0
+    else:
+        angle, eccentricity = 0, 0
 
-    # Определение порога компактности (может потребоваться настройка)
-    compactness_threshold = 0.05
+    solidity = area / cv2.contourArea(cv2.convexHull(contour))
+    HuMoments = cv2.HuMoments(M).flatten()
 
-    # Если компактность объекта удовлетворяет условию
-    if compactness > compactness_threshold:
-        # Отмечаем объект на исходном изображении (рисуем контур)
-        cv2.drawContours(contur, [contour], -1, (0, 255, 0), 2)
-
-
-# Отображение изображений рядом с помощью matplotlib
-plt.figure(figsize=(15, 10))
-
-plt.subplot(3, 3, 1)
-plt.imshow(gray_image, cmap='gray')
-plt.title('Grayscale Image')
-plt.axis('off')
-
-plt.subplot(3, 3, 2)
-plt.imshow(binary_image, cmap='gray')
-plt.title('Binary Image')
-plt.axis('off')
-
-plt.subplot(3, 3, 3)
-plt.imshow(denoised_image, cmap='gray')
-plt.title('Denoised Image')
-plt.axis('off')
-
-plt.subplot(3, 3, 4)
-plt.imshow(filtered_image, cmap='gray')
-plt.title('Homomorphic Filtered Image')
-plt.axis('off')
-
-plt.subplot(3, 3, 5)
-plt.imshow(contour_image, cmap='gray')
-plt.title('Contour segmentation')
-plt.axis('off')
-
-plt.subplot(3, 3, 6)
-plt.imshow(dilation_result, cmap='gray')
-plt.title('Morphological processing')
-plt.axis('off')
+    print("Area:", area, "Perimeter:", perimeter, "Centroid: (", cx, ",", cy, ")",
+          "Aspect Ratio:", aspect_ratio, "Extent:", extent, "Orientation:", angle,
+          "Eccentricity:", eccentricity, "Solidity:", solidity, "Hu Moments:", HuMoments)
+# ----------------------------------------------------------------------------------------
 
 
-plt.subplot(3, 3, 7)
-plt.imshow(contur, cmap='gray')
-plt.title('Identification of objects by their compactness')
-plt.axis('off')
-
-plt.show()
+    
+cv2.waitKey(0)
+cv2.destroyAllWindows()
